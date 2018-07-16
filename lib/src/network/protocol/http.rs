@@ -443,7 +443,7 @@ impl<Front:SocketHandler> Http<Front> {
       }
     }
 
-    if self.front_buf.as_ref().unwrap().buffer.available_space() == 0 {
+    if self.front_buf.as_ref().expect("readable() 1").buffer.available_space() == 0 {
       if self.backend_token == None {
         // We don't have a backend to empty the buffer into, close the connection
         metrics.service_stop();
@@ -459,22 +459,22 @@ impl<Front:SocketHandler> Http<Front> {
       return ClientResult::Continue;
     }
 
-    let (sz, res) = self.frontend.socket_read(self.front_buf.as_mut().unwrap().buffer.space());
+    let (sz, res) = self.frontend.socket_read(self.front_buf.as_mut().expect("readable() 2").buffer.space());
     debug!("{}\tFRONT: read {} bytes", self.log_ctx, sz);
 
     if sz > 0 {
-      self.front_buf.as_mut().unwrap().buffer.fill(sz);
-      self.front_buf.as_mut().unwrap().sliced_input(sz);
+      self.front_buf.as_mut().expect("readable() 3").buffer.fill(sz);
+      self.front_buf.as_mut().expect("readable() 4").sliced_input(sz);
       count!("bytes_in", sz as i64);
       metrics.bin += sz;
 
-      if self.front_buf.as_ref().unwrap().start_parsing_position > self.front_buf.as_ref().unwrap().parsed_position {
-        let to_consume = min(self.front_buf.as_ref().unwrap().input_data_size(),
-        self.front_buf.as_ref().unwrap().start_parsing_position - self.front_buf.as_ref().unwrap().parsed_position);
-        self.front_buf.as_mut().unwrap().consume_parsed_data(to_consume);
+      if self.front_buf.as_ref().expect("readable() 5").start_parsing_position > self.front_buf.as_ref().expect("readable() 6").parsed_position {
+        let to_consume = min(self.front_buf.as_ref().expect("readable() 7").input_data_size(),
+        self.front_buf.as_ref().expect("readable() 8").start_parsing_position - self.front_buf.as_ref().expect("readable() 9").parsed_position);
+        self.front_buf.as_mut().expect("readable() 10").consume_parsed_data(to_consume);
       }
 
-      if self.front_buf.as_ref().unwrap().buffer.available_space() == 0 {
+      if self.front_buf.as_ref().expect("readable() 11").buffer.available_space() == 0 {
         self.readiness.front_interest.remove(Ready::readable());
       }
     } else {
@@ -520,7 +520,7 @@ impl<Front:SocketHandler> Http<Front> {
     let has_host = unwrap_msg!(self.state.as_ref()).has_host();
     if !has_host {
       self.state = Some(parse_request_until_stop(unwrap_msg!(self.state.take()), &self.request_id,
-        &mut self.front_buf.as_mut().unwrap(), &self.sticky_name));
+        &mut self.front_buf.as_mut().expect("readable_parse() 1"), &self.sticky_name));
       if unwrap_msg!(self.state.as_ref()).is_front_error() {
         self.log_request_error(metrics, "front parsing error, closing the connection");
         metrics.service_stop();
@@ -553,7 +553,7 @@ impl<Front:SocketHandler> Http<Front> {
     self.readiness.back_interest.insert(Ready::writable());
     match unwrap_msg!(self.state.as_ref()).request {
       Some(RequestState::Request(_,_,_)) | Some(RequestState::RequestWithBody(_,_,_,_)) => {
-        if ! self.front_buf.as_ref().unwrap().needs_input() {
+        if ! self.front_buf.as_ref().expect("readable_parse() 2").needs_input() {
           // stop reading
           self.readiness.front_interest.remove(Ready::readable());
         }
@@ -571,9 +571,9 @@ impl<Front:SocketHandler> Http<Front> {
         ClientResult::CloseClient
       },
       Some(RequestState::RequestWithBodyChunks(_,_,_,_)) => {
-        if ! self.front_buf.as_ref().unwrap().needs_input() {
+        if ! self.front_buf.as_ref().expect("readable_parse() 3").needs_input() {
           self.state = Some(parse_request_until_stop(unwrap_msg!(self.state.take()), &self.request_id,
-          &mut self.front_buf.as_mut().unwrap(), &self.sticky_name));
+          &mut self.front_buf.as_mut().expect("readable_parse() 4"), &self.sticky_name));
 
           if unwrap_msg!(self.state.as_ref()).is_front_error() {
             self.log_request_error(metrics, "front chunk parsing error, closing the connection");
@@ -590,7 +590,7 @@ impl<Front:SocketHandler> Http<Front> {
       },
     _ => {
         self.state = Some(parse_request_until_stop(unwrap_msg!(self.state.take()), &self.request_id,
-          &mut self.front_buf.as_mut().unwrap(), &self.sticky_name));
+          &mut self.front_buf.as_mut().expect("readable_parse() 5"), &self.sticky_name));
 
         if unwrap_msg!(self.state.as_ref()).is_front_error() {
           self.log_request_error(metrics, "front parsing error, closing the connection");
@@ -660,8 +660,8 @@ impl<Front:SocketHandler> Http<Front> {
       return ClientResult::CloseClient;
     }
 
-    let output_size = self.back_buf.as_ref().unwrap().output_data_size();
-    if self.back_buf.as_ref().unwrap().output_data_size() == 0 || self.back_buf.as_ref().unwrap().next_output_data().len() == 0 {
+    let output_size = self.back_buf.as_ref().expect("writable() 1").output_data_size();
+    if self.back_buf.as_ref().expect("writable() 2").output_data_size() == 0 || self.back_buf.as_ref().expect("writable() 3").next_output_data().len() == 0 {
       self.readiness.back_interest.insert(Ready::readable());
       self.readiness.front_interest.remove(Ready::writable());
       return ClientResult::Continue;
@@ -669,25 +669,25 @@ impl<Front:SocketHandler> Http<Front> {
 
     let mut sz = 0usize;
     let mut res = SocketResult::Continue;
-    while res == SocketResult::Continue && self.back_buf.as_ref().unwrap().output_data_size() > 0 {
+    while res == SocketResult::Continue && self.back_buf.as_ref().expect("writable() 4").output_data_size() > 0 {
       // no more data in buffer, stop here
-      if self.back_buf.as_ref().unwrap().next_output_data().len() == 0 {
+      if self.back_buf.as_ref().expect("writable() 5").next_output_data().len() == 0 {
         self.readiness.back_interest.insert(Ready::readable());
         self.readiness.front_interest.remove(Ready::writable());
         count!("bytes_out", sz as i64);
         metrics.bout += sz;
         return ClientResult::Continue;
       }
-      let (current_sz, current_res) = self.frontend.socket_write(self.back_buf.as_ref().unwrap().next_output_data());
+      let (current_sz, current_res) = self.frontend.socket_write(self.back_buf.as_ref().expect("writable() 6").next_output_data());
       res = current_res;
-      self.back_buf.as_mut().unwrap().consume_output_data(current_sz);
+      self.back_buf.as_mut().expect("writable() 7").consume_output_data(current_sz);
       sz += current_sz;
     }
     count!("bytes_out", sz as i64);
     metrics.bout += sz;
 
     if let Some((front,back)) = self.tokens() {
-      debug!("{}\tFRONT [{}<-{}]: wrote {} bytes of {}, buffer position {} restart position {}", self.log_ctx, front.0, back.0, sz, output_size, self.back_buf.as_ref().unwrap().buffer_position, self.back_buf.as_ref().unwrap().start_parsing_position);
+      debug!("{}\tFRONT [{}<-{}]: wrote {} bytes of {}, buffer position {} restart position {}", self.log_ctx, front.0, back.0, sz, output_size, self.back_buf.as_ref().expect("writable() 8").buffer_position, self.back_buf.as_ref().expect("writable() 9").start_parsing_position);
     }
 
     match res {
@@ -703,7 +703,7 @@ impl<Front:SocketHandler> Http<Front> {
       SocketResult::Continue => {},
     }
 
-    if !self.back_buf.as_ref().unwrap().can_restart_parsing() {
+    if !self.back_buf.as_ref().expect("writable() 10").can_restart_parsing() {
       self.readiness.back_interest.insert(Ready::readable());
       return ClientResult::Continue;
     }
@@ -716,8 +716,8 @@ impl<Front:SocketHandler> Http<Front> {
       if self.front_buf.is_some() {
         // we must now copy the body from front to back
         trace!("100-Continue => copying {} of body from front to back", sz);
-        self.front_buf.as_mut().unwrap().slice_output(sz);
-        self.front_buf.as_mut().unwrap().consume_parsed_data(sz);
+        self.front_buf.as_mut().expect("writable() 11").slice_output(sz);
+        self.front_buf.as_mut().expect("writable() 12").consume_parsed_data(sz);
 
         self.state.as_mut().map(|ref mut st| {
           st.response = Some(ResponseState::Initial);
@@ -798,14 +798,14 @@ impl<Front:SocketHandler> Http<Front> {
       return ClientResult::Continue;
     }
 
-    if self.front_buf.as_ref().unwrap().output_data_size() == 0 || self.front_buf.as_ref().unwrap().next_output_data().len() == 0 {
+    if self.front_buf.as_ref().expect("back_writable() 1").output_data_size() == 0 || self.front_buf.as_ref().expect("back_writable() 2").next_output_data().len() == 0 {
       self.readiness.front_interest.insert(Ready::readable());
       self.readiness.back_interest.remove(Ready::writable());
       return ClientResult::Continue;
     }
 
     let tokens = self.tokens().clone();
-    let output_size = self.front_buf.as_ref().unwrap().output_data_size();
+    let output_size = self.front_buf.as_ref().expect("back_writable() 3").output_data_size();
     if self.backend.is_none() {
       metrics.service_stop();
       self.log_request_error(metrics, "back socket not found, closing connection");
@@ -818,17 +818,17 @@ impl<Front:SocketHandler> Http<Front> {
 
     {
       let sock = unwrap_msg!(self.backend.as_mut());
-      while socket_res == SocketResult::Continue && self.front_buf.as_ref().unwrap().output_data_size() > 0 {
+      while socket_res == SocketResult::Continue && self.front_buf.as_ref().expect("back_writable() 4").output_data_size() > 0 {
         // no more data in buffer, stop here
-        if self.front_buf.as_ref().unwrap().next_output_data().len() == 0 {
+        if self.front_buf.as_ref().expect("back_writable() 5").next_output_data().len() == 0 {
           self.readiness.front_interest.insert(Ready::readable());
           self.readiness.back_interest.remove(Ready::writable());
           metrics.backend_bout += sz;
           return ClientResult::Continue;
         }
-        let (current_sz, current_res) = sock.socket_write(self.front_buf.as_ref().unwrap().next_output_data());
+        let (current_sz, current_res) = sock.socket_write(self.front_buf.as_ref().expect("back_writable() 6").next_output_data());
         socket_res = current_res;
-        self.front_buf.as_mut().unwrap().consume_output_data(current_sz);
+        self.front_buf.as_mut().expect("back_writable() 7").consume_output_data(current_sz);
         sz += current_sz;
       }
     }
@@ -853,7 +853,7 @@ impl<Front:SocketHandler> Http<Front> {
     }
 
     // FIXME/ should read exactly as much data as needed
-    if self.front_buf.as_ref().unwrap().can_restart_parsing() {
+    if self.front_buf.as_ref().expect("back_writable() 8").can_restart_parsing() {
       match unwrap_msg!(self.state.as_ref()).request {
         // the entire request was transmitted
         Some(RequestState::Request(_,_,_))                            |
@@ -929,7 +929,7 @@ impl<Front:SocketHandler> Http<Front> {
       }
     }
 
-    if self.back_buf.as_ref().unwrap().buffer.available_space() == 0 {
+    if self.back_buf.as_ref().expect("back_readable() 1").buffer.available_space() == 0 {
       self.readiness.back_interest.remove(Ready::readable());
       return (ProtocolResult::Continue, ClientResult::Continue);
     }
@@ -945,11 +945,11 @@ impl<Front:SocketHandler> Http<Front> {
 
     let (sz, r) = {
       let sock = unwrap_msg!(self.backend.as_mut());
-      sock.socket_read(&mut self.back_buf.as_mut().unwrap().buffer.space())
+      sock.socket_read(&mut self.back_buf.as_mut().expect("back_readable() 2").buffer.space())
     };
 
-    self.back_buf.as_mut().unwrap().buffer.fill(sz);
-    self.back_buf.as_mut().unwrap().sliced_input(sz);
+    self.back_buf.as_mut().expect("back_readable() 3").buffer.fill(sz);
+    self.back_buf.as_mut().expect("back_readable() 4").sliced_input(sz);
 
     metrics.backend_bin += sz;
 
@@ -988,7 +988,7 @@ impl<Front:SocketHandler> Http<Front> {
       },
       Some(ResponseState::ResponseWithBody(_,_,_)) => {
         self.readiness.front_interest.insert(Ready::writable());
-        if ! self.back_buf.as_ref().unwrap().needs_input() {
+        if ! self.back_buf.as_ref().expect("back_readable() 3").needs_input() {
           self.readiness.back_interest.remove(Ready::readable());
         }
         (ProtocolResult::Continue, ClientResult::Continue)
@@ -1006,9 +1006,9 @@ impl<Front:SocketHandler> Http<Front> {
         (ProtocolResult::Continue, ClientResult::CloseClient)
       },
       Some(ResponseState::ResponseWithBodyChunks(_,_,_)) => {
-        if ! self.back_buf.as_ref().unwrap().needs_input() {
+        if ! self.back_buf.as_ref().expect("back_readable() 4").needs_input() {
           self.state = Some(parse_response_until_stop(unwrap_msg!(self.state.take()), &self.request_id,
-          &mut self.back_buf.as_mut().unwrap(), &self.sticky_name, self.sticky_session.take()));
+          &mut self.back_buf.as_mut().expect("back_readable() 5"), &self.sticky_name, self.sticky_session.take()));
 
           if unwrap_msg!(self.state.as_ref()).is_back_error() {
             metrics.service_stop();
@@ -1027,7 +1027,7 @@ impl<Front:SocketHandler> Http<Front> {
       Some(ResponseState::Error(_,_,_,_,_)) => panic!("{}\tback read should have stopped on responsestate error", self.log_ctx),
       _ => {
         self.state = Some(parse_response_until_stop(unwrap_msg!(self.state.take()), &self.request_id,
-        &mut self.back_buf.as_mut().unwrap(), &self.sticky_name, self.sticky_session.take()));
+        &mut self.back_buf.as_mut().expect("back_readable() 6"), &self.sticky_name, self.sticky_session.take()));
 
         if unwrap_msg!(self.state.as_ref()).is_back_error() {
           metrics.service_stop();
